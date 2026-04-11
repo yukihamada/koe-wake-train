@@ -1,0 +1,9 @@
+target/
+.git/
+*.md
+.DS_Store
+worker/
+docs/
+*.onnx
+jobs/
+__pycache__/
