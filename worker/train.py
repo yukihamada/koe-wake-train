@@ -209,18 +209,29 @@ def main():
         sys.exit(1)
 
     # ── Update YAML: point false_positive_validation_data_path at generated npy ──
-    # openwakeword unconditionally calls np.load() on this path, so null crashes it.
-    # After --augment_clips, the negative_features_test.npy is ready to use.
+    # openwakeword unconditionally calls np.load(path) on this, so null crashes.
+    # The code then does: arr[i:i+input_shape[0]] expecting a 2D array (M, 96).
+    # negative_features_test.npy is 3D (N, time_steps, 96) — reshape to 2D first.
     neg_test_npy = out_dir / args.model_name / "negative_features_test.npy"
-    fp_path = str(neg_test_npy) if neg_test_npy.exists() else None
+    fp_path = None
+    if neg_test_npy.exists():
+        try:
+            import numpy as _np
+            arr = _np.load(str(neg_test_npy))            # (N, T, 96)
+            fp_flat = arr.reshape(-1, arr.shape[-1])     # (N*T, 96) — 2D as expected
+            fp_flat_path = out_dir / args.model_name / "fp_validation_flat.npy"
+            _np.save(str(fp_flat_path), fp_flat)
+            fp_path = str(fp_flat_path)
+            emit("running", progress=f"created fp_validation_flat.npy shape={fp_flat.shape}")
+        except Exception as e:
+            emit("running", progress=f"WARN: could not reshape fp validation: {e}")
     if fp_path:
-        emit("running", progress=f"setting false_positive_validation_data_path → {neg_test_npy.name}")
         yaml_path = write_training_config(
             args.text, args.model_name, args.lang, out_dir, has_user_samples,
             false_positive_path=fp_path,
         )
     else:
-        emit("running", progress="WARN: negative_features_test.npy not found, proceeding without FP validation")
+        emit("running", progress="WARN: fp validation not available, proceeding without it")
 
     # ── Stage 3b: train model ────────────────────────────────────────────────
     emit("running", progress="training model (stage 3b/3, 5-10 min)")
