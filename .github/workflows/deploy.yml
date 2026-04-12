@@ -1,0 +1,52 @@
+name: Deploy to Fly.io
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-check:
+    name: Build check (PR)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Lint worker/train.py
+        run: python3 -m py_compile worker/train.py && echo "train.py OK"
+
+      - name: Lint server/scripts/generate_samples.py
+        run: python3 -m py_compile server/scripts/generate_samples.py && echo "generate_samples.py OK"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust deps
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server
+
+      - name: Cargo check
+        working-directory: server
+        run: cargo check --release
+
+  deploy:
+    name: Deploy to Fly.io
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy
+        run: flyctl deploy --remote-only -a koe-wake-train
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

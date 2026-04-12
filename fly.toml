@@ -7,9 +7,9 @@ primary_region = "nrt"
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = "stop"
+  auto_stop_machines = "suspend"
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
   processes = ["app"]
 
   [[http_service.checks]]
@@ -19,7 +19,12 @@ primary_region = "nrt"
     method = "GET"
     path = "/healthz"
 
+[env]
+  BASE_URL = "https://koe-wake-train.fly.dev"
+  JOBS_DIR = "/tmp/koe-jobs"
+  PIPER_SAMPLE_GENERATOR_PATH = "/opt/piper-sample-generator"
+
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "512mb"
-  cpus = 1
+  # torch CPU training needs real CPUs and enough RAM
+  size = "performance-2x"
+  memory = "4gb"
