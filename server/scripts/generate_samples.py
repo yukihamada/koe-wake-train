@@ -176,7 +176,17 @@ def _synth_edge(text: str, edge_voice: str, out_path: str) -> bool:
 
 
 def _convert_to_wav16k(src: str, dst: str) -> bool:
-    """Convert audio file to 16kHz mono WAV via soundfile+resampy."""
+    """Convert audio file to 16kHz mono WAV, padded/trimmed to exactly TARGET_SAMPLES.
+
+    openwakeword computes total_length = round(median_clip_dur/1000)*1000 + 12000.
+    With clips of TARGET_SAMPLES=24000 (1.5 sec):
+      total_length = 24000 + 12000 = 36000 → abs(36000-32000)=4000 → clamped to 32000.
+    get_embedding_shape(32000//16000=2) = (16, 96), which exactly matches the features
+    computed for 32000-sample augmented clips.  Without this clamp the clip duration
+    (≈1.65 s → total_length=38000 → features (20,96)) does not match the model layer
+    (get_embedding_shape(2)=(16,96) → 1536 inputs) causing a matmul shape crash.
+    """
+    TARGET_SAMPLES = 24_000  # 1.5 sec at 16 kHz → total_length → 32 000 after OWW rounding
     try:
         import numpy as np
         data, sr = sf.read(src)
@@ -187,12 +197,16 @@ def _convert_to_wav16k(src: str, dst: str) -> bool:
                 import resampy
                 data = resampy.resample(data, sr, 16000)
             except ImportError:
-                # Basic linear resampling fallback
                 ratio = 16000 / sr
                 n_out = int(len(data) * ratio)
                 x_old = np.linspace(0, 1, len(data))
                 x_new = np.linspace(0, 1, n_out)
                 data = np.interp(x_new, x_old, data)
+        # Trim or zero-pad to exactly TARGET_SAMPLES so total_length is deterministic.
+        if len(data) >= TARGET_SAMPLES:
+            data = data[:TARGET_SAMPLES]
+        else:
+            data = np.concatenate([data, np.zeros(TARGET_SAMPLES - len(data), dtype=data.dtype)])
         sf.write(dst, data.astype(np.float32), 16000, subtype="PCM_16")
         return os.path.exists(dst)
     except Exception as e:
